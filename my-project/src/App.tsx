@@ -272,7 +272,7 @@ RET`;
     const openFiles = files.filter(f => f.open);
     
     // Don't allow closing the last open file
-    if (openFiles.length === 1) {
+    if (openFiles.length === 0) {
       return;
     }
 
