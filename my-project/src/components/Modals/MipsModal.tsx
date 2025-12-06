@@ -1,19 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 
-// --- Types for our Simulator Data ---
-interface Register {
-  name: string;
-  alias: string;
-  value: string; // Hex string representation
-}
-
-interface MemoryRow {
-  address: string;
-  value: string;
-  label: string;
-}
-
-// --- Constants for MIPS Register Names ---
+// --- Constants & Types ---
 const REGISTER_NAMES = [
   { name: 'R0', alias: '$zero' }, { name: 'R1', alias: '$at' }, 
   { name: 'R2', alias: '$v0' }, { name: 'R3', alias: '$v1' },
@@ -33,185 +20,292 @@ const REGISTER_NAMES = [
   { name: 'R30', alias: '$fp' }, { name: 'R31', alias: '$ra' }
 ];
 
+interface Register {
+  name: string;
+  alias: string;
+  value: bigint; 
+}
+
 interface MipsModalProps {
   showMips: boolean;
   setShowMips: (show: boolean) => void;
   assembly: string;
 }
 
+// Helper to format BigInt as 16-char Hex string
+const toHex = (val: bigint) => val.toString(16).toUpperCase().padStart(16, '0');
+const toByteHex = (val: number) => val.toString(16).toUpperCase().padStart(2, '0');
+
 const MipsModal: React.FC<MipsModalProps> = ({ showMips, setShowMips, assembly }) => {
-  if (!showMips) return null;
+  // --- Simulator State ---
+  const [pc, setPc] = useState<number>(0); 
+  const [registers, setRegisters] = useState<Register[]>([]);
+  const [hi, setHi] = useState<bigint>(BigInt(0));
+  const [lo, setLo] = useState<bigint>(BigInt(0));
+  const [memory, setMemory] = useState<Record<number, number>>({}); 
+  const [parsedLines, setParsedLines] = useState<{ text: string, originalIndex: number }[]>([]);
 
-  // --- Mock Data Generation ---
-  // In a real app, these would be state variables updated by your parser/runner
-  const registers = useMemo(() => {
-    return REGISTER_NAMES.map(reg => ({
-      ...reg,
-      value: "0000000000000000"
-    }));
-  }, []);
+  // --- Initialization ---
+  useEffect(() => {
+    if (showMips) {
+      resetSimulator();
+    }
+  }, [showMips, assembly]);
 
-  const floatRegisters = useMemo(() => {
-    return Array.from({ length: 32 }, (_, i) => ({
-      name: `F${i}`,
-      alias: '',
-      value: "0000000000000000"
-    }));
-  }, []);
+  const resetSimulator = () => {
+    setPc(0);
+    setHi(BigInt(0));
+    setLo(BigInt(0));
+    setMemory({});
+    
+    // Reset Registers (R0-R31)
+    setRegisters(REGISTER_NAMES.map(reg => ({ ...reg, value: BigInt(0) })));
 
-  const memory = useMemo(() => {
-    return Array.from({ length: 32 }, (_, i) => {
-      const addr = (i * 8).toString(16).toUpperCase().padStart(4, '0');
-      return {
-        address: addr,
-        value: "0000000000000000",
-        label: ""
-      };
+    // Parse Code
+    const lines = assembly.split('\n');
+    const executableLines: { text: string, originalIndex: number }[] = [];
+    
+    lines.forEach((line, idx) => {
+      let clean = line.trim();
+      if (clean.includes(';')) clean = clean.split(';')[0].trim();
+      if (clean.toLowerCase().startsWith('.code')) return;
+      if (clean.length === 0) return;
+      executableLines.push({ text: clean, originalIndex: idx });
     });
-  }, []);
-
-  const copyAssemblyToClipboard = () => {
-    navigator.clipboard.writeText(assembly);
-    alert('MIPS Assembly code copied to clipboard!');
+    setParsedLines(executableLines);
   };
 
+  // --- Execution Logic (Same as before) ---
+  const executeLine = (line: string, currentRegs: Register[], currentHi: bigint, currentLo: bigint, currentMem: Record<number, number>) => {
+    const parts = line.replace(/,/g, ' ').trim().split(/\s+/);
+    const opcode = parts[0].toUpperCase();
+    const nextRegs = currentRegs.map(r => ({ ...r }));
+    let nextHi = currentHi;
+    let nextLo = currentLo;
+    const nextMem = { ...currentMem };
+
+    const getRegIdx = (name: string) => {
+      const cleanName = name ? name.replace(',', '') : '';
+      return nextRegs.findIndex(r => r.name.toUpperCase() === cleanName.toUpperCase() || r.alias.toUpperCase() === cleanName.toUpperCase());
+    };
+    const getRegVal = (idx: number) => (idx !== -1 ? nextRegs[idx].value : BigInt(0));
+    const setRegVal = (idx: number, val: bigint) => {
+      if (idx > 0 && idx < 32) nextRegs[idx].value = val;
+    };
+
+    try {
+      switch (opcode) {
+        case 'DADDIU': case 'DADDI': {
+            const rt = getRegIdx(parts[1]); const rs = getRegIdx(parts[2]); const imm = BigInt(parseInt(parts[3]));
+            if (rt !== -1 && rs !== -1) setRegVal(rt, getRegVal(rs) + imm); break;
+        }
+        case 'DADDU': case 'DADD': {
+            const rd = getRegIdx(parts[1]); const rs = getRegIdx(parts[2]); const rt = getRegIdx(parts[3]);
+            if (rd !== -1 && rs !== -1 && rt !== -1) setRegVal(rd, getRegVal(rs) + getRegVal(rt)); break;
+        }
+        case 'DSUBU': case 'DSUB': {
+            const rd = getRegIdx(parts[1]); const rs = getRegIdx(parts[2]); const rt = getRegIdx(parts[3]);
+            if (rd !== -1 && rs !== -1 && rt !== -1) setRegVal(rd, getRegVal(rs) - getRegVal(rt)); break;
+        }
+        case 'DMULU': case 'DMUL': {
+            const rs = getRegIdx(parts[1]); const rt = getRegIdx(parts[2]);
+            if (rs !== -1 && rt !== -1) { const result = getRegVal(rs) * getRegVal(rt); nextLo = result; nextHi = BigInt(0); } break;
+        }
+        case 'MFLO': { const rd = getRegIdx(parts[1]); if (rd !== -1) setRegVal(rd, nextLo); break; }
+        case 'SB': {
+            const rt = getRegIdx(parts[1]); const match = parts[2].match(/(-?\d+)\((.+)\)/);
+            if (match && rt !== -1) {
+              const baseIdx = getRegIdx(match[2]);
+              if (baseIdx !== -1) { nextMem[Number(getRegVal(baseIdx)) + parseInt(match[1])] = Number(getRegVal(rt) & BigInt(0xFF)); }
+            } break;
+        }
+        case 'LB': {
+            const rt = getRegIdx(parts[1]); const match = parts[2].match(/(-?\d+)\((.+)\)/);
+            if (match && rt !== -1) {
+              const baseIdx = getRegIdx(match[2]);
+              if (baseIdx !== -1) { setRegVal(rt, BigInt(nextMem[Number(getRegVal(baseIdx)) + parseInt(match[1])] || 0)); }
+            } break;
+        }
+        default: break;
+      }
+    } catch (e) { console.error(e); }
+    return { nextRegs, nextHi, nextLo, nextMem };
+  };
+
+  const stepForward = () => {
+    if (pc >= parsedLines.length) return;
+    const result = executeLine(parsedLines[pc].text, registers, hi, lo, memory);
+    setRegisters(result.nextRegs); setHi(result.nextHi); setLo(result.nextLo); setMemory(result.nextMem); setPc(prev => prev + 1);
+  };
+
+  const runAll = () => {
+    let tempPc = pc; let tempRegs = [...registers]; let tempHi = hi; let tempLo = lo; let tempMem = { ...memory };
+    while (tempPc < parsedLines.length) {
+      const result = executeLine(parsedLines[tempPc].text, tempRegs, tempHi, tempLo, tempMem);
+      tempRegs = result.nextRegs; tempHi = result.nextHi; tempLo = result.nextLo; tempMem = result.nextMem; tempPc++;
+    }
+    setRegisters(tempRegs); setHi(tempHi); setLo(tempLo); setMemory(tempMem); setPc(tempPc);
+  };
+
+  if (!showMips) return null;
+
+  // View Helpers
+  const memoryRows = Array.from({ length: 16 }, (_, i) => ({
+    addr: i.toString(16).toUpperCase().padStart(4, '0'),
+    val: memory[i] !== undefined ? toByteHex(memory[i]) : "00"
+  }));
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 font-sans">
-      <div className="bg-gray-800 border-2 border-yellow-500 rounded-xl w-[95vw] h-[90vh] shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-6 font-sans backdrop-blur-sm">
+      {/* Modal Container: Dark Blue/Gray theme with Yellow Sun Borders */}
+      <div className="bg-gray-900 border-2 border-yellow-400 rounded-lg w-[95vw] h-[90vh] shadow-[0_0_20px_rgba(250,204,21,0.3)] flex flex-col overflow-hidden">
         
-        {/* === Title bar === */}
-        <div className="bg-blue-900 text-white px-6 py-3 flex justify-between items-center">
+        {/* === Header (Flag Blue) === */}
+        <div className="h-12 flex items-center justify-between px-4 bg-blue-900 border-b border-blue-700">
           <div className="flex items-center gap-3">
-            <span className="font-bold text-lg">🚀 EduMIPS64 Clone</span>
-            <span className="text-sm bg-yellow-500 text-blue-900 px-2 py-1 rounded font-semibold">
-              Visual Simulator
-            </span>
+             {/* Pinoy Dots */}
+             <div className="flex gap-1.5">
+               <div className="w-3 h-3 rounded-full bg-red-600 shadow-md"></div>
+               <div className="w-3 h-3 rounded-full bg-yellow-400 shadow-md animate-pulse"></div>
+               <div className="w-3 h-3 rounded-full bg-blue-500 shadow-md"></div>
+             </div>
+             <span className="text-yellow-200 font-bold text-lg tracking-wide">MIPS64 Simulator</span>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={copyAssemblyToClipboard}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm transition-colors"
-            >
-              📋 Copy Assembly
-            </button>
-            <button
-              onClick={() => setShowMips(false)}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors"
-            >
-              Close
-            </button>
+          
+          <button 
+            onClick={() => setShowMips(false)} 
+            className="text-gray-400 hover:text-white transition-colors text-xl font-bold px-2"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* === Toolbar (Blue Accent) === */}
+        <div className="flex items-center p-3 bg-blue-900/50 gap-3 border-b border-gray-700">
+          {/* Run Button (Sun Yellow) */}
+          <button 
+            onClick={runAll} 
+            disabled={pc >= parsedLines.length} 
+            className="bg-yellow-400 text-blue-900 px-4 py-1.5 rounded text-sm hover:bg-yellow-300 font-bold transition-all shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span>▶</span> Run All
+          </button>
+
+          {/* Step Button (Blue) */}
+          <button 
+            onClick={stepForward} 
+            disabled={pc >= parsedLines.length} 
+            className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-500 font-bold transition-all shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-400"
+          >
+            <span>⬇</span> Step
+          </button>
+
+          <div className="w-[1px] h-6 bg-gray-600 mx-2"></div>
+
+          {/* Reset Button (Red) */}
+          <button 
+            onClick={resetSimulator} 
+            className="bg-red-600 text-white px-4 py-1.5 rounded text-sm hover:bg-red-500 font-bold transition-all shadow-lg flex items-center gap-2 border border-red-400"
+          >
+            <span>↺</span> Reset
+          </button>
+
+          <div className="ml-auto flex items-center gap-2 text-sm bg-gray-800 px-3 py-1.5 rounded border border-gray-700">
+            <span className="text-gray-400">Program Counter:</span>
+            <span className="font-mono font-bold text-yellow-400">{pc}</span>
           </div>
         </div>
 
-        {/* === Content Area === */}
-        <div className="flex flex-1 overflow-hidden">
+        {/* === Content Grid === */}
+        <div className="flex flex-1 overflow-hidden p-3 gap-3 bg-gray-900">
           
-          {/* LEFT PANEL: Assembly Code */}
-          <div className="w-1/3 bg-gray-900 border-r border-gray-700 flex flex-col">
-            <div className="bg-gray-800 px-4 py-2 font-semibold text-yellow-300 border-b border-gray-700">
-              Generated MIPS Assembly
+          {/* LEFT: Code View */}
+          <div className="w-1/4 flex flex-col rounded-lg border border-gray-700 overflow-hidden bg-gray-800">
+            <div className="px-3 py-2 text-xs font-bold text-yellow-400 uppercase tracking-wider bg-gray-900/50 border-b border-gray-700">
+              Source Code
             </div>
-            <div className="flex-1 p-4 overflow-auto bg-[#1e1e1e]">
-              <pre className="text-green-400 whitespace-pre-wrap text-sm font-mono leading-relaxed">
-                {assembly || "# No assembly code available"}
-              </pre>
+            <div className="flex-1 overflow-auto p-0 font-mono text-sm">
+              {parsedLines.map((line, idx) => (
+                <div 
+                  key={idx} 
+                  className={`flex px-3 py-1 border-l-4 ${idx === pc ? 'bg-yellow-900/40 border-yellow-400 text-yellow-100' : 'border-transparent text-gray-400 hover:bg-gray-700/50'}`}
+                >
+                  <span className={`w-6 text-right mr-3 select-none ${idx === pc ? 'text-yellow-500 font-bold' : 'text-gray-600'}`}>{idx}</span>
+                  <span>{line.text}</span>
+                </div>
+              ))}
+              {parsedLines.length === 0 && <div className="p-4 text-gray-500 italic text-center text-xs">Waiting for assembly...</div>}
             </div>
           </div>
 
-          {/* RIGHT PANEL: Custom Simulator UI */}
-          <div className="w-2/3 flex flex-col bg-gray-200">
-            
-            {/* --- TOP HALF: REGISTERS --- */}
-            <div className="h-1/2 flex flex-col border-b-4 border-gray-400">
-              {/* Header mimicking the screenshot */}
-              <div className="bg-gradient-to-b from-gray-100 to-gray-300 px-2 py-1 border-b border-gray-400 flex items-center">
-                <div className="w-3 h-3 bg-green-500 rounded-sm mr-2"></div>
-                <span className="font-bold text-gray-800 text-sm">Registers</span>
-              </div>
-              
-              {/* Register Grid Container */}
-              <div className="flex-1 overflow-auto bg-white p-1">
-                <div className="flex">
-                  {/* CPU Registers (Left Side) */}
-                  <div className="w-1/2 border-r border-gray-300">
-                    <table className="w-full text-left border-collapse font-mono text-sm">
-                      <tbody>
-                        {registers.map((reg, idx) => (
-                          <tr key={reg.name} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-blue-50'} hover:bg-blue-100`}>
-                            <td className="pl-2 py-0.5 text-gray-600 w-12 font-bold">{reg.name}</td>
-                            <td className="px-1 py-0.5 text-blue-800 w-16">({reg.alias})</td>
-                            <td className="px-2 py-0.5 text-gray-900 tracking-wider text-right border-l border-gray-200">
-                              {reg.value}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+          {/* CENTER: Registers */}
+          <div className="w-1/2 flex flex-col rounded-lg border border-gray-700 overflow-hidden bg-gray-800">
+             <div className="px-3 py-2 text-xs font-bold text-blue-300 uppercase tracking-wider bg-gray-900/50 border-b border-gray-700">
+               Registers
+             </div>
+             <div className="flex-1 overflow-auto p-3">
+                {/* HI/LO Special */}
+                <div className="flex gap-3 mb-4">
+                  <div className="flex-1 bg-blue-900/30 border border-blue-800 rounded p-2 flex justify-between items-center">
+                    <span className="font-bold text-blue-400 text-xs">HI</span>
+                    <span className="font-mono text-blue-200">{toHex(hi)}</span>
                   </div>
-
-                  {/* Floating Point Registers (Right Side) */}
-                  <div className="w-1/2">
-                    <table className="w-full text-left border-collapse font-mono text-sm">
-                      <tbody>
-                        {floatRegisters.map((reg, idx) => (
-                          <tr key={reg.name} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-blue-50'} hover:bg-blue-100`}>
-                            <td className="pl-4 py-0.5 text-gray-600 w-16 font-bold">{reg.name}</td>
-                            <td className="px-2 py-0.5 text-gray-900 tracking-wider text-right border-l border-gray-200">
-                              {reg.value}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="flex-1 bg-blue-900/30 border border-blue-800 rounded p-2 flex justify-between items-center">
+                    <span className="font-bold text-blue-400 text-xs">LO</span>
+                    <span className="font-mono text-blue-200">{toHex(lo)}</span>
                   </div>
                 </div>
-              </div>
-            </div>
 
-            {/* --- BOTTOM HALF: DATA / MEMORY --- */}
-            <div className="h-1/2 flex flex-col">
-              {/* Header mimicking the screenshot */}
-              <div className="bg-gradient-to-b from-gray-100 to-gray-300 px-2 py-1 border-b border-gray-400 flex items-center">
-                <div className="w-3 h-3 bg-pink-500 rounded-sm mr-2"></div>
-                <span className="font-bold text-gray-800 text-sm">Data</span>
-              </div>
-
-              {/* Memory Table */}
-              <div className="flex-1 overflow-auto bg-white">
-                <table className="w-full text-left border-collapse font-mono text-sm">
-                  <thead className="bg-gray-100 sticky top-0 shadow-sm">
-                    <tr>
-                      <th className="px-4 py-1 border-r border-gray-300 text-gray-600 font-semibold w-24">Address</th>
-                      <th className="px-4 py-1 border-r border-gray-300 text-gray-600 font-semibold w-48">Representation</th>
-                      <th className="px-4 py-1 text-gray-600 font-semibold">Label</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {memory.map((row, idx) => (
-                      <tr key={row.address} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-yellow-50'} hover:bg-yellow-100 border-b border-gray-100`}>
-                        <td className="px-4 py-0.5 text-gray-500 font-bold border-r border-gray-200">
-                          {row.address}
-                        </td>
-                        <td className="px-4 py-0.5 text-gray-900 tracking-widest border-r border-gray-200">
-                          {row.value}
-                        </td>
-                        <td className="px-4 py-0.5 text-gray-400 italic">
-                          {row.label}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
+                {/* Grid */}
+                <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                  {registers.map((reg) => (
+                    <div key={reg.name} className="flex justify-between items-center text-xs border-b border-gray-700 py-1 hover:bg-gray-700/50 rounded px-1">
+                      <div className="flex gap-2">
+                        <span className="font-bold text-gray-400">{reg.name}</span>
+                        <span className="text-gray-600">{reg.alias}</span>
+                      </div>
+                      <span className={`font-mono ${reg.value !== BigInt(0) ? 'text-yellow-400 font-bold' : 'text-gray-500'}`}>
+                        {toHex(reg.value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+             </div>
           </div>
+
+          {/* RIGHT: Memory */}
+          <div className="w-1/4 flex flex-col rounded-lg border border-gray-700 overflow-hidden bg-gray-800">
+            <div className="px-3 py-2 text-xs font-bold text-red-300 uppercase tracking-wider bg-gray-900/50 border-b border-gray-700">
+              Data Memory (0-15)
+            </div>
+            <div className="flex-1 overflow-auto p-0">
+              <table className="w-full text-xs font-mono">
+                <thead className="bg-gray-900 text-gray-400">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Addr</th>
+                    <th className="px-3 py-2 text-right">Value</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-700">
+                  {memoryRows.map((row) => (
+                    <tr key={row.addr} className="hover:bg-gray-700/50">
+                      <td className="px-3 py-1.5 text-gray-500">{row.addr}</td>
+                      <td className={`px-3 py-1.5 text-right ${row.val !== "00" ? 'text-red-400 font-bold' : 'text-gray-600'}`}>
+                        {row.val}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
-        
-        {/* Footer */}
-        <div className="bg-gray-900 px-4 py-2 text-xs text-gray-400 border-t border-gray-700 flex justify-between">
-            <span>Visual Simulation View</span>
-            <span>MIPS64 Compatible Layout</span>
+
+        {/* === Footer === */}
+        <div className="bg-blue-900 h-6 flex items-center justify-between px-3 text-[10px] text-blue-200 border-t border-blue-800">
+            <span>🇵🇭 Pinoy MIPS64 Engine</span>
+            <span>Ready for Input</span>
         </div>
 
       </div>

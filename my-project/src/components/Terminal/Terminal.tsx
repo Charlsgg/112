@@ -50,7 +50,7 @@ const Terminal: React.FC<TerminalProps> = ({
             activeTab === "assembly" ? "bg-red-900 text-yellow-300" : "text-yellow-100"
           }`}
         >
-          MIPS ASSEMBLY
+          Edumips64 assenbly and machine code trasnlation
         </button>
         <button
           onClick={() => setActiveTab("machine")}

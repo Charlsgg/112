@@ -7,7 +7,7 @@ import { DEFAULT_FILES, KEYWORDS } from "./utils/constants";
 import type { Keyword, FileItem, SidebarView, CompilerResponse } from "./types/index";
 
 export default function App() {
-  const [code, setCode] = useState("ilimbag\"nosi nosi balasi\"");
+  const [code, setCode] = useState("numero c = 10+10*2 \nnumero b = 2*10+10 \nsulat g = \"hello\" \nilimbag \"%d\", c \nilimbag \"%s\", g \nilimbag \"%s\", g \nilimbag \"%s\",g \nilimbag \"Number: %d\", c \nilimbag \"%s\", g \ng = \"yoooo\" \nilimbag \"%s\", g \nc = c + c \nc = c - c \nc = c * c + 14 \nc = c * c + c ");
   const [output, setOutput] = useState("");
   const [assembly, setAssembly] = useState("");
   const [machineCode, setMachineCode] = useState("");
@@ -168,6 +168,39 @@ export default function App() {
     }
   };
 
+  // NEW: Handler to compile and immediately open MIPS runner
+  const handleOpenMips = async () => {
+    setIsRunning(true);
+    // Optional: Switch to output tab to show progress
+    setActiveTab("output"); 
+    setOutput("⏳ Compiling for Assembly Runner...");
+
+    try {
+      const res = await fetch("http://localhost:3001/compile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data: CompilerResponse = await res.json();
+      
+      // Update states
+      setOutput(data.output || data.error || "");
+      setAssembly(data.assembly || "");
+      setMachineCode(data.machineCode || "");
+
+      // If compilation was successful and we have assembly, open the modal
+      if (data.assembly) {
+        setShowMips(true);
+      } else {
+        alert("Compilation failed. Fix errors before running Assembly.");
+      }
+    } catch (err: any) {
+      setOutput("❌ Error connecting to compiler server: " + err.message);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
   const testCompilerServer = () => {
     fetch('http://localhost:3001/health')
       .then(res => {
@@ -216,11 +249,16 @@ export default function App() {
 
       <MipsModal showMips={showMips} setShowMips={setShowMips} assembly={assembly} />
 
-      {/* Menu Bar */}
+      {/* Menu Bar - UPDATED */}
       <div className="h-8 flex items-center px-3 bg-blue-800 border-b border-blue-700 text-xs text-yellow-100">
         <span className="px-2 hover:bg-blue-700 cursor-pointer">Help</span>
-        <button onClick={() => setShowMips(true)} className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded" disabled={!assembly}>
-          {assembly ? "🚀 Open EduMIPS64" : "Assembly Runner"}
+        {/* Changed onClick to handleOpenMips and removed !assembly disable check */}
+        <button 
+          onClick={handleOpenMips} 
+          disabled={isRunning}
+          className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50 disabled:cursor-wait" 
+        >
+          🚀 Open Assembly Runner
         </button>
       </div>
 

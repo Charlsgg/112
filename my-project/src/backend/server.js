@@ -152,7 +152,7 @@ app.post("/compile", async (req, res) => {
     res.json({
       success: csResult.exitCode === 0 && cs2Result.exitCode === 0,
       output: csResult.stdout || "No output from cs.exe",
-      assembly: `--- Transpiled Code (cs2 input) ---\n${cVersion}\n\n--- cs2 Output ---\n${cs2Result.stdout || "No output"}`, 
+      assembly: `${cs2Result.stdout || "No output"}`, 
       error: allErrors.join("\n") || null,
       exitCodes: {
         cs: csResult.exitCode,
