@@ -7,5 +7,5 @@ export const KEYWORDS = [
   { label: "numero (variable name) = (int value)", detail: "Int Data Type", desc: "declares an integer variable and initializes an int value" }
 ];
 export const DEFAULT_FILES = [
-  { name: "sample.pinoy", content: "numero c = 10+10*2 \nnumero b = 2*10+10 \nsulat g = \"hello\" \nilimbag \"%d\", c \nilimbag \"%s\", g \nilimbag \"%s\", g \nilimbag \"%s\",g \nilimbag \"Number: %d\", c \nilimbag \"%s\", g \ng = \"yoooo\" \nilimbag \"%s\", g \nc = c + c \nc = c - c \nc = c * c + 14 \nc = c * c + c c",  active: true, open: true },
+  { name: "sample.pinoy", content: "numero c = 10+10*2 \nnumero b = 2*10+10 \nsulat g = \"hello\" \nilimbag \"%d\", c \nilimbag \"%s\", g \nilimbag \"%s\", g \nilimbag \"%s\",g \nilimbag \"Number: %d\", c \nilimbag \"%s\", g \ng = \"yoooo\" \nilimbag \"%s\", g \nc = c + c \nc = c - c \nc = c * c + 14 \nc = c * c + c ",  active: true, open: true },
 ];

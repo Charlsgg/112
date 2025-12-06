@@ -24,9 +24,11 @@ if (!fs.existsSync(CS2_EXE)) {
 }
 
 // --- TRANSPILER FUNCTION ---
-// 1. Converts types (numero -> int, sulat -> char)
-// 2. Removes ilimbag statements completely
-// 3. Adds semicolons
+// 1. Converts types (numero -> int)
+// 2. Removes 'ilimbag' statements
+// 3. Removes 'sulat' declarations
+// 4. Removes string assignments (e.g., variable = "text")
+// 5. Adds semicolons
 function translateToC(customCode) {
     let cCode = ""; 
     const lines = customCode.split('\n');
@@ -46,9 +48,14 @@ function translateToC(customCode) {
             return;
         }
 
-        // --- REMOVE 'ilimbag' ---
-        // If the line starts with ilimbag, skip it entirely
-        if (trimmed.startsWith('ilimbag')) {
+        // --- FILTERING ---
+        // 1. Remove 'ilimbag' lines
+        // 2. Remove 'sulat' lines (declarations)
+        // 3. Remove assignments involving strings (e.g., g = "yoooo")
+        //    Checks for an equals sign followed by a double quote
+        if (trimmed.startsWith('ilimbag') || 
+            trimmed.startsWith('sulat') || 
+            /=\s*"/.test(trimmed)) {
             return; 
         }
 
@@ -57,14 +64,6 @@ function translateToC(customCode) {
         // 1. Translate Types
         // 'numero' -> 'int'
         let converted = trimmed.replace(/\bnumero\b/g, 'int');
-
-        // 'sulat' handling
-        // If assigning a string literal ("..."), use 'char *'. Else (single char), use 'char'
-        if (converted.match(/\bsulat\b\s+\w+\s*=\s*"/)) {
-            converted = converted.replace(/\bsulat\b/g, 'char *');
-        } else {
-            converted = converted.replace(/\bsulat\b/g, 'char');
-        }
 
         // 2. Ensure Semicolons
         if (!converted.endsWith(';') && !converted.endsWith('{') && !converted.endsWith('}') && !converted.startsWith('#')) {
@@ -137,12 +136,9 @@ app.post("/compile", async (req, res) => {
     };
 
     // --- TRANSLATION STEP ---
-    // Translate custom code to C (expressions only, ilimbag REMOVED)
     const cVersion = translateToC(code);
     
     // Run both compilers simultaneously
-    // cs.exe gets original custom code
-    // cs2.exe gets translated code
     const [csResult, cs2Result] = await Promise.all([
       runCompiler(CS_EXE, "cs.exe", code),
       runCompiler(CS2_EXE, "cs2.exe", cVersion)
@@ -156,7 +152,6 @@ app.post("/compile", async (req, res) => {
     res.json({
       success: csResult.exitCode === 0 && cs2Result.exitCode === 0,
       output: csResult.stdout || "No output from cs.exe",
-      // Showing the Transpiled Code + Output for debugging clarity
       assembly: `--- Transpiled Code (cs2 input) ---\n${cVersion}\n\n--- cs2 Output ---\n${cs2Result.stdout || "No output"}`, 
       error: allErrors.join("\n") || null,
       exitCodes: {
@@ -226,6 +221,8 @@ sulat pangalan = "Tagalog"
 ilimbag "Ang wika ay: %s", pangalan
 
 a + b * 3
+
+g = "yoooo"
 
 ilimbag a</textarea>
         <button onclick="compileCustom()">Run Compile</button>
