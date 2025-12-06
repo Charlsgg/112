@@ -23,6 +23,60 @@ if (!fs.existsSync(CS2_EXE)) {
   process.exit(1);
 }
 
+// --- TRANSPILER FUNCTION ---
+// 1. Converts types (numero -> int, sulat -> char)
+// 2. Removes ilimbag statements completely
+// 3. Adds semicolons
+function translateToC(customCode) {
+    let cCode = ""; 
+    const lines = customCode.split('\n');
+
+    lines.forEach(line => {
+        let trimmed = line.trim();
+        
+        // Skip empty lines
+        if (!trimmed) {
+            cCode += "\n";
+            return;
+        }
+        
+        // Keep comments
+        if (trimmed.startsWith('//')) {
+            cCode += line + "\n";
+            return;
+        }
+
+        // --- REMOVE 'ilimbag' ---
+        // If the line starts with ilimbag, skip it entirely
+        if (trimmed.startsWith('ilimbag')) {
+            return; 
+        }
+
+        // --- TRANSLATE EXPRESSIONS ---
+        
+        // 1. Translate Types
+        // 'numero' -> 'int'
+        let converted = trimmed.replace(/\bnumero\b/g, 'int');
+
+        // 'sulat' handling
+        // If assigning a string literal ("..."), use 'char *'. Else (single char), use 'char'
+        if (converted.match(/\bsulat\b\s+\w+\s*=\s*"/)) {
+            converted = converted.replace(/\bsulat\b/g, 'char *');
+        } else {
+            converted = converted.replace(/\bsulat\b/g, 'char');
+        }
+
+        // 2. Ensure Semicolons
+        if (!converted.endsWith(';') && !converted.endsWith('{') && !converted.endsWith('}') && !converted.startsWith('#')) {
+            converted += ';';
+        }
+
+        cCode += converted + "\n";
+    });
+
+    return cCode;
+}
+
 // POST /compile - runs both compilers simultaneously
 app.post("/compile", async (req, res) => {
   const { code } = req.body;
@@ -38,7 +92,7 @@ app.post("/compile", async (req, res) => {
 
   try {
     // Function to run a compiler
-    const runCompiler = (exePath, compilerName) => {
+    const runCompiler = (exePath, compilerName, inputCode) => {
       return new Promise((resolve) => {
         const child = spawn(exePath, [], {
           stdio: ["pipe", "pipe", "pipe"],
@@ -48,8 +102,8 @@ app.post("/compile", async (req, res) => {
         let stdout = "";
         let stderr = "";
 
-        // Send the code to the exe's stdin
-        child.stdin.write(code);
+        // Send the SPECIFIC code to the exe's stdin
+        child.stdin.write(inputCode);
         child.stdin.end();
 
         // Capture stdout
@@ -82,10 +136,16 @@ app.post("/compile", async (req, res) => {
       });
     };
 
+    // --- TRANSLATION STEP ---
+    // Translate custom code to C (expressions only, ilimbag REMOVED)
+    const cVersion = translateToC(code);
+    
     // Run both compilers simultaneously
+    // cs.exe gets original custom code
+    // cs2.exe gets translated code
     const [csResult, cs2Result] = await Promise.all([
-      runCompiler(CS_EXE, "cs.exe"),
-      runCompiler(CS2_EXE, "cs2.exe")
+      runCompiler(CS_EXE, "cs.exe", code),
+      runCompiler(CS2_EXE, "cs2.exe", cVersion)
     ]);
 
     // Combine results
@@ -96,7 +156,8 @@ app.post("/compile", async (req, res) => {
     res.json({
       success: csResult.exitCode === 0 && cs2Result.exitCode === 0,
       output: csResult.stdout || "No output from cs.exe",
-      assembly: cs2Result.stdout || "No assembly output from cs2.exe",
+      // Showing the Transpiled Code + Output for debugging clarity
+      assembly: `--- Transpiled Code (cs2 input) ---\n${cVersion}\n\n--- cs2 Output ---\n${cs2Result.stdout || "No output"}`, 
       error: allErrors.join("\n") || null,
       exitCodes: {
         cs: csResult.exitCode,
@@ -114,87 +175,12 @@ app.post("/compile", async (req, res) => {
   }
 });
 
-// Test endpoint - runs sample code through both compilers
+// Test endpoint
 app.get("/test", async (req, res) => {
-  const sampleCode = `
-    ilimbag "hello world";
-`;
-
-  try {
-    // Run both compilers
-    const runCompiler = (exePath, compilerName) => {
-      return new Promise((resolve) => {
-        const child = spawn(exePath, [], {
-          stdio: ["pipe", "pipe", "pipe"],
-          shell: true,
-        });
-
-        let stdout = "";
-        let stderr = "";
-
-        child.stdin.write(sampleCode);
-        child.stdin.end();
-
-        child.stdout.on("data", (data) => {
-          stdout += data.toString();
-        });
-
-        child.stderr.on("data", (data) => {
-          stderr += data.toString();
-        });
-
-        child.on("close", (exitCode) => {
-          resolve({
-            stdout,
-            stderr,
-            exitCode,
-            compilerName
-          });
-        });
-
-        child.on("error", (err) => {
-          resolve({
-            stdout: "",
-            stderr: `Failed to execute ${compilerName}: ${err.message}`,
-            exitCode: 1,
-            compilerName
-          });
-        });
-      });
-    };
-
-    const [csResult, cs2Result] = await Promise.all([
-      runCompiler(CS_EXE, "cs.exe"),
-      runCompiler(CS2_EXE, "cs2.exe")
-    ]);
-
-    res.json({
-      success: true,
-      sampleCode: sampleCode,
-      output: csResult.stdout || "No output from cs.exe",
-      assembly: cs2Result.stdout || "No assembly output from cs2.exe",
-      errors: {
-        cs: csResult.stderr || null,
-        cs2: cs2Result.stderr || null
-      },
-      exitCodes: {
-        cs: csResult.exitCode,
-        cs2: cs2Result.exitCode
-      }
-    });
-
-  } catch (err) {
-    res.json({
-      success: false,
-      sampleCode: sampleCode,
-      output: "",
-      assembly: "",
-      error: err.message,
-    });
-  }
+  res.json({ message: "Use the UI to test." });
 });
 
-// Simple HTML test page
+// Front-end UI
 app.get("/", (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -202,38 +188,56 @@ app.get("/", (req, res) => {
     <head>
         <title>CS Compiler Test</title>
         <style>
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            textarea { width: 100%; height: 150px; margin: 10px 0; }
-            button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
-            .output-container { margin-top: 20px; }
-            .tab { display: inline-block; padding: 10px 20px; cursor: pointer; background: #e9ecef; border: 1px solid #ddd; margin-right: 5px; }
-            .tab.active { background: #007bff; color: white; }
-            .tab-content { padding: 10px; background: #f5f5f5; border: 1px solid #ddd; white-space: pre-wrap; min-height: 100px; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #f4f4f9; }
+            h1 { color: #333; }
+            textarea { width: 100%; height: 250px; margin: 10px 0; font-family: 'Consolas', monospace; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+            button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; border-radius: 4px; font-size: 16px; }
+            button:hover { background: #218838; }
+            .output-container { margin-top: 20px; background: white; padding: 15px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            .tab { display: inline-block; padding: 10px 20px; cursor: pointer; background: #e9ecef; border: 1px solid #ddd; margin-right: 5px; border-radius: 4px 4px 0 0; }
+            .tab.active { background: #007bff; color: white; border-color: #007bff; }
+            .tab-content { padding: 15px; background: #f8f9fa; border: 1px solid #ddd; white-space: pre-wrap; min-height: 100px; font-family: 'Consolas', monospace; }
         </style>
     </head>
     <body>
-        <h1>CS Compiler Test</h1>
+        <h1>CS Custom Language Compiler</h1>
         
-        <h3>Test 1: Direct Test</h3>
-        <button onclick="testSample()">Run Sample Code (ilimbag "hello world")</button>
+        <textarea id="codeInput" placeholder="Enter custom code here...">numero a = 10
+numero b = 5
+
+ilimbag "Testing:"
+
+a += 3
+ilimbag "a += 3: ", a
+
+b *= 2
+ilimbag "b *= 2: ", b
+
+++a
+ilimbag "++a: ", a
+
+b--
+ilimbag "b--: ", b
+
+numero c = a + b * 2
+ilimbag "c = a + b * 2 = ", c
+
+sulat pangalan = "Tagalog"
+ilimbag "Ang wika ay: %s", pangalan
+
+a + b * 3
+
+ilimbag a</textarea>
+        <button onclick="compileCustom()">Run Compile</button>
         
-        <h3>Test 2: Custom Code</h3>
-        <textarea id="codeInput">// Enter your C-like code here
-int main() {
-    ilimbag "hello world";
-    return 0;
-}</textarea>
-        <button onclick="compileCustom()">Compile Custom Code</button>
-        
-        <h3>Output:</h3>
         <div class="output-container">
             <div>
-                <span class="tab active" onclick="showTab('output')">Output (cs.exe)</span>
-                <span class="tab" onclick="showTab('assembly')">Assembly (cs2.exe)</span>
+                <span class="tab active" onclick="showTab('output')">cs.exe Output</span>
+                <span class="tab" onclick="showTab('assembly')">cs2.exe (Stripped Input)</span>
                 <span class="tab" onclick="showTab('errors')">Errors</span>
             </div>
-            <div id="outputTab" class="tab-content"></div>
-            <div id="assemblyTab" class="tab-content" style="display:none;"></div>
+            <div id="outputTab" class="tab-content">Waiting for input...</div>
+            <div id="assemblyTab" class="tab-content" style="display:none;">Waiting for input...</div>
             <div id="errorsTab" class="tab-content" style="display:none;"></div>
         </div>
         
@@ -249,29 +253,11 @@ int main() {
                 document.getElementById(tabName + 'Tab').style.display = 'block';
             }
             
-            async function testSample() {
-                document.getElementById('outputTab').textContent = "Testing sample code...";
-                
-                try {
-                    const response = await fetch('/test');
-                    const result = await response.json();
-                    
-                    document.getElementById('outputTab').textContent = result.output;
-                    document.getElementById('assemblyTab').textContent = result.assembly;
-                    
-                    let errors = [];
-                    if (result.errors.cs) errors.push("cs.exe: " + result.errors.cs);
-                    if (result.errors.cs2) errors.push("cs2.exe: " + result.errors.cs2);
-                    document.getElementById('errorsTab').textContent = errors.join("\\n");
-                    
-                } catch (error) {
-                    document.getElementById('outputTab').textContent = "Error: " + error.message;
-                }
-            }
-            
             async function compileCustom() {
                 const code = document.getElementById('codeInput').value;
                 document.getElementById('outputTab').textContent = "Compiling...";
+                document.getElementById('assemblyTab').textContent = "Compiling...";
+                document.getElementById('errorsTab').textContent = "";
                 
                 try {
                     const response = await fetch('/compile', {
@@ -287,15 +273,15 @@ int main() {
                         document.getElementById('assemblyTab').textContent = result.assembly;
                         document.getElementById('errorsTab').textContent = result.error || "No errors";
                     } else {
-                        document.getElementById('outputTab').textContent = "Error: " + result.error;
+                        document.getElementById('outputTab').textContent = "Build Failed";
+                        document.getElementById('assemblyTab').textContent = "Build Failed";
+                        document.getElementById('errorsTab').textContent = result.error || "Unknown Error";
+                        showTab('errors');
                     }
                 } catch (error) {
                     document.getElementById('outputTab').textContent = "Network error: " + error.message;
                 }
             }
-            
-            // Auto-run sample test on page load
-            window.onload = testSample;
         </script>
     </body>
     </html>
@@ -305,6 +291,4 @@ int main() {
 const PORT = 3001;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Test the compilers at: http://localhost:${PORT}/`);
-  console.log(`Running both cs.exe and cs2.exe simultaneously`);
 });
