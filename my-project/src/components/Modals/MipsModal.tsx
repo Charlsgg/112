@@ -188,7 +188,7 @@ const MipsModal: React.FC<MipsModalProps> = ({ showMips, setShowMips, assembly }
             disabled={pc >= parsedLines.length} 
             className="bg-yellow-400 text-blue-900 px-4 py-1.5 rounded text-sm hover:bg-yellow-300 font-bold transition-all shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <span>▶</span> Run All
+            Run All
           </button>
 
           {/* Step Button (Blue) */}
@@ -197,7 +197,7 @@ const MipsModal: React.FC<MipsModalProps> = ({ showMips, setShowMips, assembly }
             disabled={pc >= parsedLines.length} 
             className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-500 font-bold transition-all shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-400"
           >
-            <span>⬇</span> Step
+          Step
           </button>
 
           <div className="w-[1px] h-6 bg-gray-600 mx-2"></div>

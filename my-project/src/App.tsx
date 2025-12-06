@@ -3,6 +3,7 @@ import CodeEditor from "./components/Editor/CodeEditor";
 import Terminal from "./components/Terminal/Terminal";
 import Sidebar from "./components/Sidebar/Sidebar";
 import MipsModal from "./components/Modals/MipsModal";
+import HelpModal from "./components/Modals/HelpModal"; // <--- IMPORT ADDED
 import { DEFAULT_FILES, KEYWORDS } from "./utils/constants";
 import type { Keyword, FileItem, SidebarView, CompilerResponse } from "./types/index";
 
@@ -13,6 +14,7 @@ export default function App() {
   const [machineCode, setMachineCode] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [showMips, setShowMips] = useState(false);
+  const [showHelp, setShowHelp] = useState(false); // <--- STATE ADDED
   const [activeTab, setActiveTab] = useState("output");
 
   // Intellisense
@@ -168,11 +170,10 @@ export default function App() {
     }
   };
 
-  // NEW: Handler to compile and immediately open MIPS runner
+  // Handler to compile and immediately open MIPS runner
   const handleOpenMips = async () => {
     setIsRunning(true);
-    // Optional: Switch to output tab to show progress
-    setActiveTab("output"); 
+    setActiveTab("output");
     setOutput("⏳ Compiling for Assembly Runner...");
 
     try {
@@ -182,13 +183,11 @@ export default function App() {
         body: JSON.stringify({ code }),
       });
       const data: CompilerResponse = await res.json();
-      
-      // Update states
+
       setOutput(data.output || data.error || "");
       setAssembly(data.assembly || "");
       setMachineCode(data.machineCode || "");
 
-      // If compilation was successful and we have assembly, open the modal
       if (data.assembly) {
         setShowMips(true);
       } else {
@@ -231,7 +230,7 @@ export default function App() {
             <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
             <div className="w-3 h-3 rounded-full bg-blue-500"></div>
           </div>
-          <span className="text-sm text-yellow-200">PinoyCode Studio</span>
+          <span className="text-sm text-yellow-200">Wikaxd</span>
         </div>
 
         <div className="flex gap-2">
@@ -247,16 +246,26 @@ export default function App() {
         </div>
       </header>
 
+      {/* MODALS RENDERED HERE */}
       <MipsModal showMips={showMips} setShowMips={setShowMips} assembly={assembly} />
+      
+      {/* ADDED: Help Modal */}
+      <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />
 
-      {/* Menu Bar - UPDATED */}
+      {/* Menu Bar */}
       <div className="h-8 flex items-center px-3 bg-blue-800 border-b border-blue-700 text-xs text-yellow-100">
-        <span className="px-2 hover:bg-blue-700 cursor-pointer">Help</span>
-        {/* Changed onClick to handleOpenMips and removed !assembly disable check */}
-        <button 
-          onClick={handleOpenMips} 
+        {/* ADDED: onClick handler for Help */}
+        <span 
+          className="px-2 hover:bg-blue-700 cursor-pointer select-none"
+          onClick={() => setShowHelp(true)}
+        >
+          Help
+        </span>
+        
+        <button
+          onClick={handleOpenMips}
           disabled={isRunning}
-          className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50 disabled:cursor-wait" 
+          className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50 disabled:cursor-wait ml-2"
         >
           🚀 Open Assembly Runner
         </button>
