@@ -15,8 +15,7 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
         {/* Header */}
         <div className="flex justify-between items-center p-4 border-b border-gray-700 bg-blue-900 rounded-t-lg">
           <div className="flex items-center gap-2">
-            <span className="text-2xl">🇵🇭</span>
-            <h2 className="text-xl font-bold text-yellow-400">PinoyCode Documentation</h2>
+            <h2 className="text-xl font-bold text-yellow-400">wikaxd Documentation</h2>
           </div>
           <button 
             onClick={onClose}
