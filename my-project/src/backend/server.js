@@ -9,7 +9,9 @@ app.use(cors());
 app.use(express.json());
 
 // Path to your cs.exe
-const COMPILER_EXE = "C:\\Users\\charls\\Desktop\\112\\my-project\\src\\exe\\cs.exe";
+// const COMPILER_EXE = "C:\\Users\\AdminPC\\Desktop\\SmallPrject\\112\\my-project\\src\\exe\\cs.exe";
+
+const COMPILER_EXE = path.join(__dirname, '..', 'exe', 'cs.exe');
 
 if (!fs.existsSync(COMPILER_EXE)) {
   console.error("cs.exe not found at:", COMPILER_EXE);
