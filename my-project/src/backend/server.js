@@ -19,9 +19,7 @@ if (!fs.existsSync(CS2_EXE)) console.error("cs2.exe not found");
 // --- TRANSPILER FOR CS2.EXE ONLY ---
 // cs2.exe is strict. It needs 'int', semicolons, and NO strings/floats.
 // We DO NOT use this function for cs.exe.
-function prepareForAssembly(code) {
-    // 1. Sanitize invisible chars (Only for cs2 path)
-    const cleanRaw = code.replace(/\u00A0/g, ' ');
+function prepareForAssembly(code) {const cleanRaw = code.replace(/\u00A0/g, ' ');
 
     return cleanRaw.split('\n').map(line => {
         const commentIdx = line.indexOf('//');
@@ -32,20 +30,25 @@ function prepareForAssembly(code) {
         if (!trimmed) return comment;
 
         // 2. STRICT FILTER: Remove types cs2.exe can't handle
+        // REMOVED 'letra' from this list so it is allowed through
         if (trimmed.startsWith('ilimbag') || 
             trimmed.startsWith('desimal') || 
-            trimmed.startsWith('letra') || 
-            trimmed.startsWith('sulat')) {
+            trimmed.startsWith('sulat')) { 
             return ""; 
         }
 
         // 3. CONTENT FILTER: Remove strings/floats
-        if (trimmed.includes('"') || trimmed.includes("'") || trimmed.includes('.')) {
+        // REMOVED trimmed.includes("'") so single quotes (like 'A') are allowed
+        if (trimmed.includes('"') || trimmed.includes('.')) {
             return "";
         }
 
-        // 4. TRANSLATE: numero -> int
-        let translated = trimmed.replace(/\bnumero\b/g, 'int');
+        // 4. TRANSLATE: 
+        // - numero -> int
+        // - letra -> char
+        let translated = trimmed
+            .replace(/\bnumero\b/g, 'int')
+            .replace(/\bletra\b/g, 'char');
 
         // 5. ADD SEMICOLON (Required for C syntax)
         if (!translated.endsWith(';') && !translated.endsWith('{') && !translated.endsWith('}')) {
